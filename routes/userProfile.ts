@@ -58,7 +58,7 @@ export function getUserProfile () {
     const themeKey = config.get<string>('application.theme') as keyof typeof themes
     const theme = themes[themeKey] || themes['bluegrey-lightgreen']
 
-    template = template.replace(/_username_/g, '!{username}')
+    template = template.replace(/_username_/g, '#{username}')
     template = template.replace(/_emailHash_/g, security.hash(user?.email))
     template = template.replace(/_title_/g, entities.encode(config.get<string>('application.name')))
     template = template.replace(/_favicon_/g, favicon())
@@ -72,7 +72,23 @@ export function getUserProfile () {
     try {
       const pug = (await import('pug')).default
       const fn = pug.compile(template)
-      const CSP = `img-src 'self' ${user?.profileImage}; script-src 'self' 'unsafe-eval'`
+      let safeProfileImage = ''
+      if (user?.profileImage) {
+        const sanitized = user.profileImage.split(';')[0].replace(/[\r\n]/g, '').trim()
+        if (sanitized && !/[;\s\r\n'"]/.test(sanitized)) {
+          try {
+            if (sanitized.startsWith('/') || sanitized.startsWith('assets/')) {
+              safeProfileImage = sanitized
+            } else {
+              const parsed = new URL(sanitized)
+              if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+                safeProfileImage = parsed.href
+              }
+            }
+          } catch {}
+        }
+      }
+      const CSP = `img-src 'self'${safeProfileImage ? ` ${safeProfileImage}` : ''}; script-src 'self' 'unsafe-eval'`
 
       challengeUtils.solveIf(challenges.usernameXssChallenge, () => {
         return username && user?.profileImage.match(/;[ ]*script-src(.)*'unsafe-inline'/g) !== null && utils.contains(username, '<script>alert(`xss`)</script>')
